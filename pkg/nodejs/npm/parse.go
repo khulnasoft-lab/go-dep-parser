@@ -1,28 +1,40 @@
 package npm
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
+	"github.com/liamg/jfather"
 	"golang.org/x/exp/maps"
 	"golang.org/x/xerrors"
 
 	dio "github.com/aquasecurity/go-dep-parser/pkg/io"
 	"github.com/aquasecurity/go-dep-parser/pkg/log"
+	"github.com/aquasecurity/go-dep-parser/pkg/utils"
 
 	"github.com/aquasecurity/go-dep-parser/pkg/types"
 )
 
 type LockFile struct {
-	Dependencies map[string]Dependency
+	Dependencies map[string]Dependency `json:"dependencies"`
+	Packages     map[string]Package    `json:"packages"`
 }
 type Dependency struct {
-	Version      string
-	Dev          bool
-	Dependencies map[string]Dependency
-	Requires     map[string]string
+	Version      string                `json:"version"`
+	Dev          bool                  `json:"dev"`
+	Dependencies map[string]Dependency `json:"dependencies"`
+	Requires     map[string]string     `json:"requires"`
+	Resolved     string                `json:"resolved"`
+	StartLine    int
+	EndLine      int
+}
+
+type Package struct {
+	Name         string            `json:"name"`
+	Version      string            `json:"version"`
+	Dependencies map[string]string `json:"dependencies"`
 }
 
 type Parser struct{}
@@ -31,24 +43,23 @@ func NewParser() types.Parser {
 	return &Parser{}
 }
 
-func (p *Parser) ID(name, version string) string {
-	return fmt.Sprintf("%s@%s", name, version)
-}
-
 func (p *Parser) Parse(r dio.ReadSeekerAt) ([]types.Library, []types.Dependency, error) {
 	var lockFile LockFile
-	decoder := json.NewDecoder(r)
-	err := decoder.Decode(&lockFile)
+	input, err := io.ReadAll(r)
 	if err != nil {
+		return nil, nil, xerrors.Errorf("read error: %w", err)
+	}
+	if err := jfather.Unmarshal(input, &lockFile); err != nil {
 		return nil, nil, xerrors.Errorf("decode error: %w", err)
 	}
 
-	libs, deps := p.parse(lockFile.Dependencies, map[string]string{})
+	dircetDeps := lockFile.Packages[""].Dependencies
+	libs, deps := p.parse(lockFile.Dependencies, dircetDeps, map[string]string{})
 
-	return unique(libs), uniqueDeps(deps), nil
+	return utils.UniqueLibraries(libs), uniqueDeps(deps), nil
 }
 
-func (p *Parser) parse(dependencies map[string]Dependency, versions map[string]string) ([]types.Library, []types.Dependency) {
+func (p *Parser) parse(dependencies map[string]Dependency, dircetDeps map[string]string, versions map[string]string) ([]types.Library, []types.Dependency) {
 	// Update package name and version mapping.
 	for pkgName, dep := range dependencies {
 		// Overwrite the existing package version so that the nested version can take precedence.
@@ -63,9 +74,17 @@ func (p *Parser) parse(dependencies map[string]Dependency, versions map[string]s
 		}
 
 		lib := types.Library{
-			ID:      p.ID(pkgName, dependency.Version),
-			Name:    pkgName,
-			Version: dependency.Version,
+			ID:                 utils.PackageID(pkgName, dependency.Version),
+			Name:               pkgName,
+			Version:            dependency.Version,
+			Indirect:           isIndirectLib(pkgName, dircetDeps),
+			ExternalReferences: []types.ExternalRef{{Type: types.RefOther, URL: dependency.Resolved}},
+			Locations: []types.Location{
+				{
+					StartLine: dependency.StartLine,
+					EndLine:   dependency.EndLine,
+				},
+			},
 		}
 		libs = append(libs, lib)
 
@@ -73,14 +92,14 @@ func (p *Parser) parse(dependencies map[string]Dependency, versions map[string]s
 		for libName, requiredVer := range dependency.Requires {
 			// Try to resolve the version with nested dependencies first
 			if resolvedDep, ok := dependency.Dependencies[libName]; ok {
-				libID := p.ID(libName, resolvedDep.Version)
+				libID := utils.PackageID(libName, resolvedDep.Version)
 				dependsOn = append(dependsOn, libID)
 				continue
 			}
 
 			// Try to resolve the version with the higher level dependencies
 			if ver, ok := versions[libName]; ok {
-				dependsOn = append(dependsOn, p.ID(libName, ver))
+				dependsOn = append(dependsOn, utils.PackageID(libName, ver))
 				continue
 			}
 
@@ -89,12 +108,12 @@ func (p *Parser) parse(dependencies map[string]Dependency, versions map[string]s
 		}
 
 		if len(dependsOn) > 0 {
-			deps = append(deps, types.Dependency{ID: p.ID(lib.Name, lib.Version), DependsOn: dependsOn})
+			deps = append(deps, types.Dependency{ID: utils.PackageID(lib.Name, lib.Version), DependsOn: dependsOn})
 		}
 
 		if dependency.Dependencies != nil {
 			// Recursion
-			childLibs, childDeps := p.parse(dependency.Dependencies, maps.Clone(versions))
+			childLibs, childDeps := p.parse(dependency.Dependencies, dircetDeps, maps.Clone(versions))
 			libs = append(libs, childLibs...)
 			deps = append(deps, childDeps...)
 		}
@@ -103,17 +122,6 @@ func (p *Parser) parse(dependencies map[string]Dependency, versions map[string]s
 	return libs, deps
 }
 
-func unique(libs []types.Library) []types.Library {
-	var uniqLibs []types.Library
-	unique := map[types.Library]struct{}{}
-	for _, lib := range libs {
-		if _, ok := unique[lib]; !ok {
-			unique[lib] = struct{}{}
-			uniqLibs = append(uniqLibs, lib)
-		}
-	}
-	return uniqLibs
-}
 func uniqueDeps(deps []types.Dependency) []types.Dependency {
 	var uniqDeps []types.Dependency
 	unique := make(map[string]struct{})
@@ -127,4 +135,20 @@ func uniqueDeps(deps []types.Dependency) []types.Dependency {
 		}
 	}
 	return uniqDeps
+}
+
+func isIndirectLib(libName string, dircetDeps map[string]string) bool {
+	_, ok := dircetDeps[libName]
+	return !ok
+}
+
+// UnmarshalJSONWithMetadata needed to detect start and end lines of deps
+func (t *Dependency) UnmarshalJSONWithMetadata(node jfather.Node) error {
+	if err := node.Decode(&t); err != nil {
+		return err
+	}
+	// Decode func will overwrite line numbers if we save them first
+	t.StartLine = node.Range().Start.Line
+	t.EndLine = node.Range().End.Line
+	return nil
 }

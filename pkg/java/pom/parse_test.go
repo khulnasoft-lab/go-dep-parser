@@ -267,6 +267,25 @@ func TestPom_Parse(t *testing.T) {
 			},
 		},
 		{
+			name:      "transitive parents",
+			inputFile: filepath.Join("testdata", "transitive-parents", "base", "pom.xml"),
+			local:     true,
+			want: []types.Library{
+				{
+					Name:    "com.example:base",
+					Version: "4.0.0",
+				},
+				{
+					Name:    "org.example:example-api",
+					Version: "1.7.30",
+				},
+				{
+					Name:    "org.example:example-child",
+					Version: "2.0.0",
+				},
+			},
+		},
+		{
 			name:      "parent relativePath",
 			inputFile: filepath.Join("testdata", "parent-relative-path", "pom.xml"),
 			local:     true,
@@ -614,6 +633,31 @@ func TestPom_Parse(t *testing.T) {
 				{
 					ID:        "com.example.module2:1.1.1",
 					DependsOn: []string{"org.example.example-api:2.0.0"},
+				},
+			},
+		},
+		{
+			name:      "overwrite artifact version from upper pom dependencyManagement",
+			inputFile: filepath.Join("testdata", "upper-pom-dep-management", "pom.xml"),
+			local:     true,
+			want: []types.Library{
+				{
+					Name:    "com.example:upper-pom-dep-management",
+					Version: "1.0.0",
+				},
+				{
+					Name:    "org.example:example-api",
+					Version: "2.0.0",
+				},
+				// dependency version is taken from `com.example:upper-pom-dep-management` from dependencyManagement
+				// not from `com.example:example-nested` from `com.example:example-nested`
+				{
+					Name:    "org.example:example-dependency",
+					Version: "1.2.4",
+				},
+				{
+					Name:    "org.example:example-nested",
+					Version: "3.3.3",
 				},
 			},
 		},

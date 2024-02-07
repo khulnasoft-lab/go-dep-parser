@@ -1,5 +1,12 @@
 package utils
 
+import (
+	"fmt"
+
+	"github.com/aquasecurity/go-dep-parser/pkg/types"
+	"golang.org/x/exp/maps"
+)
+
 func UniqueStrings(ss []string) []string {
 	var results []string
 	uniq := map[string]struct{}{}
@@ -13,6 +20,24 @@ func UniqueStrings(ss []string) []string {
 	return results
 }
 
+func UniqueLibraries(libs []types.Library) []types.Library {
+	if len(libs) == 0 {
+		return nil
+	}
+	unique := map[string]types.Library{}
+	for _, lib := range libs {
+		identifier := fmt.Sprintf("%s@%s", lib.Name, lib.Version)
+		if l, ok := unique[identifier]; !ok {
+			unique[identifier] = lib
+		} else if len(lib.Locations) > 0 {
+			// merge locations
+			l.Locations = append(l.Locations, lib.Locations...)
+			unique[identifier] = l
+		}
+	}
+	return maps.Values(unique)
+}
+
 func MergeMaps(parent, child map[string]string) map[string]string {
 	if parent == nil {
 		return child
@@ -21,4 +46,8 @@ func MergeMaps(parent, child map[string]string) map[string]string {
 		parent[k] = v
 	}
 	return parent
+}
+
+func PackageID(name, version string) string {
+	return fmt.Sprintf("%s@%s", name, version)
 }

@@ -55,6 +55,12 @@ func TestParse(t *testing.T) {
 			want:     npmDeepNested,
 			wantDeps: npmDeepNestedDeps,
 		},
+		{
+			name:     "direct libraries",
+			file:     "testdata/package-lock_with_packages.json",
+			want:     npmWithPkgs,
+			wantDeps: npmWithPkgsDeps,
+		},
 	}
 
 	for _, tt := range tests {
@@ -95,5 +101,14 @@ func sortLibs(libs []types.Library) {
 			return libs[i].Version < libs[j].Version
 		}
 		return ret < 0
+	})
+	for _, lib := range libs {
+		sortLocations(lib.Locations)
+	}
+}
+
+func sortLocations(locs []types.Location) {
+	sort.Slice(locs, func(i, j int) bool {
+		return locs[i].StartLine < locs[j].StartLine
 	})
 }
