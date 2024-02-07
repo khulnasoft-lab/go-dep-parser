@@ -1,9 +1,15 @@
 module github.com/org/repo
 
-go 1.17
+go 1.21
 
-require github.com/aquasecurity/go-dep-parser v0.0.0-20211110174639-8257534ffed3
+toolchain go1.22.0
 
-require golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+require github.com/aquasecurity/go-dep-parser v0.0.0-20240202105001-4f19ab402b0b
 
-replace github.com/aquasecurity/go-dep-parser => github.com/aquasecurity/go-dep-parser v0.0.0-20220406074731-71021a481237
+require (
+	golang.org/x/exp v0.0.0-20220407100705-7b9b53b0aca4 // indirect
+	golang.org/x/mod v0.14.0 // indirect
+	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
+)
+
+replace github.com/aquasecurity/go-dep-parser => github.com/aquasecurity/go-dep-parser v0.0.0-20240202105001-4f19ab402b0b
