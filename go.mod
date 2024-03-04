@@ -11,7 +11,7 @@ require (
 	github.com/liamg/jfather v0.0.7
 	github.com/microsoft/go-rustaudit v0.0.0-20220808201409-204dfee52032
 	github.com/samber/lo v1.39.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	go.uber.org/zap v1.26.0
 	golang.org/x/exp v0.0.0-20240205201215-2c58cdc269a3
 	golang.org/x/mod v0.14.0
